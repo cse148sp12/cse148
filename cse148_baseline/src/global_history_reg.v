@@ -11,12 +11,8 @@
  *
  * Description:
  *   The global history register (GHR) stores the last n branch predictions.
- *   When a branch enters the DEC pipeline stage, the GHR shifts the branch 
- *   prediction in. When the branch is resolved one cycle later in the EX 
- *   stage, the GHR is updated with the actual branch outcome. Writes are 
- *   synchronous while reads are asynchronous (in write first read later 
- *   fashion0 to circumvent branch hazards when executing sequential branch
- *   instructions.
+ *   The last n branch predictions are XOR'd with the lower order n bits of 
+ *   the branch address to form an index to a 2^n table of 2-bit counters.
  =============================================================================*/
 module global_history_reg #(parameter BPRED_WIDTH)
 (
