@@ -18,7 +18,7 @@
 `timescale 1ns/1ps
 module test_global_history_reg();
 
-localparam BPRED_WIDTH = 32;
+localparam BPRED_WIDTH = 9;
 localparam HI = 1'b1;
 localparam LO = 1'b0;
 localparam TRUE = 1'b1;

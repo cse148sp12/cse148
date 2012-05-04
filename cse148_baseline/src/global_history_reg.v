@@ -5,6 +5,7 @@
  *
  * Version  Date        Comment
  * ----------------------------------------------------------------------------
+ *   1.2    05/03/12    Fixed incorrect GHR update when shifting.
  *   1.1    04/30/12    Added & cleaned-up comments. Re-implemented GHR as a
  *                      left-shift shift register.
  *   1.0    04/26/12    Initial design.
@@ -50,18 +51,22 @@ module global_history_reg #(parameter BPRED_WIDTH)
 		end
 		else
 		begin
-            // if a branch is in EX stage
-			if(i_ALU_Branch_Valid)
-			begin
-                // update GHR with branch resolution
-				Global_History[0] <= i_ALU_Branch_Outcome;
-			end
             // if a branch is in DEC stage
 			if(i_DEC_Is_Branch)
 			begin	
                 // shift in prediction bit from counter table
 				Global_History <= Global_History << 1;
 				Global_History[0] <= i_Prediction;
+                
+                // update GHR with branch resolution
+                if(i_ALU_Branch_Valid)
+                    Global_History[1] <= i_ALU_Branch_Outcome;
+			end
+            // if a branch is in EX stage
+			else if(i_ALU_Branch_Valid)
+			begin
+                // update GHR with branch resolution
+				Global_History[0] <= i_ALU_Branch_Outcome;
 			end
 		end	
 	end
