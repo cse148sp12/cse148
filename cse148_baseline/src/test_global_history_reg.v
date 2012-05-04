@@ -4,6 +4,7 @@
  * 
  * Version  Date        Comment
  * ----------------------------------------------------------------------------
+ *   1.1    05/03/12    Automated test bench.
  *   1.0    04/30/12    Initial design.
  *
  * Description:
@@ -18,7 +19,7 @@
 `timescale 1ns/1ps
 module test_global_history_reg();
 
-localparam BPRED_WIDTH = 32;
+localparam BPRED_WIDTH = 9;
 localparam HI = 1'b1;
 localparam LO = 1'b0;
 localparam TRUE = 1'b1;
@@ -31,12 +32,13 @@ reg Reset_n;
 
 reg ALU_o_Branch_Valid;   // instruction at EX stage is a branch
 reg DEC_o_Is_Branch;      // instruction at DEC stage is a branch
-reg i_Prediction;         // branch prediction given by counter table
-reg i_ALU_Branch_Outcome; // branch resolution
+reg BP_i_Prediction;      // branch prediction given by counter table
+reg ALU_o_Branch_Outcome; // branch resolution
 
-wire [BPRED_WIDTH-1:0] Global_History;    // GHR output
+wire [BPRED_WIDTH-1:0] BP_o_Global_History;    // GHR output
 
 integer k;
+integer errors;
 
 // UUT - Unit Under Test
 global_history_reg #(.BPRED_WIDTH(BPRED_WIDTH)) UUT
@@ -47,11 +49,11 @@ global_history_reg #(.BPRED_WIDTH(BPRED_WIDTH)) UUT
 	// inputs
 	.i_ALU_Branch_Valid(ALU_o_Branch_Valid),
 	.i_DEC_Is_Branch(DEC_o_Is_Branch),
-	.i_Prediction(i_Prediction),
-	.i_ALU_Branch_Outcome(i_ALU_Branch_Outcome),
+	.i_Prediction(BP_i_Prediction),
+	.i_ALU_Branch_Outcome(ALU_o_Branch_Outcome),
     
 	// outputs
-	.o_Global_History(Global_History)
+	.o_Global_History(BP_o_Global_History)
 );			
 
 /*==================
@@ -70,6 +72,12 @@ end
  =============*/
 initial  
 begin
+    $display("=========================================");
+    $display(" BEGIN BP - COUNTER TABLE TEST           ");
+    $display("=========================================");
+    
+    errors = 0;
+
     /*===============
      * TEST 1: RESET
      ================*/
@@ -78,6 +86,22 @@ begin
 	Reset_n = HI;                                   // enable
     
 	for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
+    
+    $display("");
+    $display("-----------------------------------------");
+    $display(" TEST 1: RESET                           ");
+    $display("-----------------------------------------");
+    $display("BP_o_Global_History[0]");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Global_History[0]);
+    
+    if (BP_o_Global_History[0] == TAKEN)
+        $display("result: passed.");
+    else
+    begin
+        $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
+        errors = errors + 1;
+    end
 	
 	/*==========================================
      * TEST 2: BRANCH PREDICTION BIT INSERTION
@@ -86,8 +110,8 @@ begin
     begin
         ALU_o_Branch_Valid = FALSE;                 // no branch in EX stage
         DEC_o_Is_Branch = TRUE;                     // branch in DEC stage
-        i_Prediction = NOT_TAKEN;                   // predict not taken
-        i_ALU_Branch_Outcome = 1'bx;                // ignore branch resolution
+        BP_i_Prediction = NOT_TAKEN;                // predict not taken
+        ALU_o_Branch_Outcome = 1'bx;                // ignore branch resolution
     end
     
     // "pass" branch instruction through pipeline
@@ -98,6 +122,22 @@ begin
     end
     
     for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
+    
+    $display("");
+    $display("-----------------------------------------");
+    $display(" TEST 2: BRANCH PREDICTION BIT INSERTION ");
+    $display("-----------------------------------------");
+    $display("BP_o_Global_History[0]");
+    $display("\texpected: 0");
+    $display("\tactual:   %d", BP_o_Global_History[0]);
+    
+    if (BP_o_Global_History[0] == NOT_TAKEN)
+        $display("result: passed.");
+    else
+    begin
+        $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
+        errors = errors + 1;
+    end
 
 	/*===================================
      * TEST 3: BRANCH RESOLUTION UPDATE
@@ -106,8 +146,8 @@ begin
     begin
         ALU_o_Branch_Valid = TRUE;                  // branch in EX stage
         DEC_o_Is_Branch = FALSE;                    // no branch in DEC stage
-        i_Prediction = 1'bx;                        // ignore prediction
-        i_ALU_Branch_Outcome = TAKEN;               // taken
+        BP_i_Prediction = 1'bx;                     // ignore prediction
+        ALU_o_Branch_Outcome = TAKEN;               // taken
     end
     
     // "pass" branch instruction through pipeline
@@ -118,6 +158,22 @@ begin
     end
     
     for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
+    
+    $display("");
+    $display("-----------------------------------------");
+    $display(" TEST 3: BRANCH RESOLUTION UPDATE        ");
+    $display("-----------------------------------------");
+    $display("BP_o_Global_History[0]");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Global_History[0]);
+    
+    if (BP_o_Global_History[0] == TAKEN)
+        $display("result: passed.");
+    else
+    begin
+        $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
+        errors = errors + 1;
+    end
     
     /*=================================
      * TEST 4: TWO BRANCHES IN FLIGHT
@@ -126,8 +182,8 @@ begin
     begin
         ALU_o_Branch_Valid = FALSE;                 // no branch in EX stage
         DEC_o_Is_Branch = TRUE;                     // branch in DEC stage
-        i_Prediction = NOT_TAKEN;                   // predict not taken
-        i_ALU_Branch_Outcome = 1'bx;                // ignore branch resolution
+        BP_i_Prediction = NOT_TAKEN;                // predict not taken
+        ALU_o_Branch_Outcome = 1'bx;                // ignore branch resolution
     end
     
     // "pass" branch instruction through pipeline
@@ -137,10 +193,13 @@ begin
         DEC_o_Is_Branch = FALSE;                 
     end
     
-	ALU_o_Branch_Valid = TRUE;                      // branch in EX stage
-	DEC_o_Is_Branch = TRUE;                         // branch in DEC stage
-    i_Prediction = TAKEN;                       // predict not taken
-    i_ALU_Branch_Outcome = TAKEN;                   // taken
+    @(posedge clk)
+    begin
+        ALU_o_Branch_Valid = TRUE;                  // branch in EX stage
+        DEC_o_Is_Branch = TRUE;                     // branch in DEC stage
+        BP_i_Prediction = TAKEN;                    // predict not taken
+        ALU_o_Branch_Outcome = TAKEN;               // taken
+    end
     
     // "pass" branch instruction through pipeline
 	@(posedge clk)
@@ -151,11 +210,40 @@ begin
     
     for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
     
-    $stop;
+    $display("");
+    $display("-----------------------------------------");
+    $display(" TEST 4: TWO BRANCHES IN FLIGHT          ");
+    $display("-----------------------------------------");
+    $display("BP_o_Global_History[0]");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Global_History[0]);
+    $display("BP_o_Global_History[1]");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Global_History[1]);
     
-/*=================
- * END TEST BENCH
- =================*/
- 
+    if (BP_o_Global_History[0] != TAKEN)
+    begin
+        $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
+        errors = errors + 1;
+    end
+    if (BP_o_Global_History[1] != TAKEN)
+    begin
+        $display("result: FAILED. BP_o_Global_History[1] does not match expected value.");
+        errors = errors + 1;
+    end
+    if (BP_o_Global_History[0] == TAKEN && BP_o_Global_History[1] == TAKEN)
+        $display("result: passed.");
+        
+    /*=================
+     * END TEST BENCH
+     =================*/
+    $display("");
+    $display("=========================================");
+    $display(" END BP - COUNTER TABLE TEST             ");
+    $display(" errors: %d", errors);
+    $display("=========================================");
+
+    $stop;
 end 
+
 endmodule
