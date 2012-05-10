@@ -4,7 +4,8 @@
  * 
  * Version  Date        Comment
  * ----------------------------------------------------------------------------
- *   1.0    05/02/12    Initial design.
+ *   1.1    05/08/12    Changed testbench from clocked to edge-triggered.
+ *   1.0    05/03/12    Initial design.
  *
  * Description:
  *   Simulation level module that tests the counter table for logical 
@@ -32,11 +33,11 @@ reg ALU_o_Branch_Outcome;           // branch resolution
 wire BP_o_Prediction;               // branch prediction
 
 integer k;
+integer errors;
 
 // UUT - Unit Under Test
 counter_table #(.BPRED_WIDTH(BPRED_WIDTH)) UUT
 (
-    .i_Clk(clk),
     .i_Enable(BP_i_Enable),
 	.i_Reset(Reset_n),
     
@@ -48,123 +49,303 @@ counter_table #(.BPRED_WIDTH(BPRED_WIDTH)) UUT
 	.o_Prediction(BP_o_Prediction)
 );			
 
-/*==================
- * CLOCK GENERATOR
- ==================*/
-always
-begin
-	#5
-	clk = HI;
-	#5
-	clk = LO;
-end
-
 /*=============
  * TEST BENCH
  =============*/
 initial  
 begin
-    $display("\n===============================");
-    $display("\n BEGIN BP - COUNTER TABLE TEST ");
-    $display("\n===============================");
-    $display("\n");
+    $display("===============================");
+    $display(" BEGIN BP - COUNTER TABLE TEST ");
+    $display("===============================");
+    
+    errors <= 0;
 
-    /*===============
+    /*================
      * TEST 1: RESET
      ================*/
-	Reset_n = LO;                                   // reset
-	for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
-	Reset_n = HI;                                   // enable
+    #1
+    BP_i_Enable <= LO;
+	Reset_n <= LO;
+    BP_i_Index <= 0;
+    ALU_o_Branch_Outcome <= 0;
     
-	for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
-    
-    $display("\n-------------------------------");
-    $display("\n TEST 1: RESET                 ");
-    $display("\n-------------------------------");
-    $display("\n");
-    $display("\nBP_o_Prediction");
-    $display("\n\texpected: 1");
-    $display("\n\tactual:   %d", BP_o_Prediction);
-    $display("\n");
-    $display("\nresult: ");
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 1: RESET                 ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Prediction);
     
     if (BP_o_Prediction == TAKEN)
-        $display("passed.");
+        $display("result: passed.");
     else
-        $display("FAILED. BP_o_Prediction does not match expected value.");
+    begin
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
+    end
 	
 	/*=================
      * TEST 2: ENABLE
      =================*/
-    @(posedge clk)
+    #1
+    BP_i_Enable <= LO;                           // disable table
+    Reset_n <= HI;                               // disable reset
+    BP_i_Index <= 0;                             // select counter 0
+    ALU_o_Branch_Outcome <= 0;                   // move state to weakly not taken
+    
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 2: ENABLE                ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Prediction);
+    
+    if (BP_o_Prediction == TAKEN)
+        $display("result: passed.");
+    else
     begin
-        BP_i_Enable = LO;                           // disable
-        BP_i_Index = 0;                             // select counter 0
-        ALU_o_Branch_Outcome = 0;                   // move state to weakly not taken
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
     end
-    
-    // "pass" branch instruction through pipeline
-	@(posedge clk)
-    begin
-        BP_i_Enable = LO;                
-    end
-    
-    $display("")
-    
-    for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
 
 	/*===================================
-     * TEST 3: BRANCH RESOLUTION UPDATE
+     * TEST 3A: STATE TRANSITIONS
      ===================================*/
-    @(posedge clk)
+    
+    #1
+    BP_i_Enable <= HI;                          // enable
+    BP_i_Index <= 0;                            // select counter 0
+    ALU_o_Branch_Outcome <= 0;                  // move state to weakly not taken
+    
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 3A: STATE TRANSITIONS    ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 0");
+    $display("\tactual:   %d", BP_o_Prediction);
+    
+    if (BP_o_Prediction == NOT_TAKEN)
+        $display("result: passed.");
+    else
     begin
-        ALU_o_Branch_Valid = TRUE;                  // branch in EX stage
-        DEC_o_Is_Branch = FALSE;                    // no branch in DEC stage
-        i_Prediction = 1'bx;                        // ignore prediction
-        i_ALU_Branch_Outcome = TAKEN;               // taken
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
     end
     
-    // "pass" branch instruction through pipeline
-	@(posedge clk)
+    BP_i_Enable <= LO;                          // pull enable lo for next use
+    
+    /*===================================
+     * TEST 3B: STATE TRANSITIONS
+     ===================================*/
+    
+    #1
+    BP_i_Enable <= HI;                          // enable
+    BP_i_Index <= 0;                            // select counter 0
+    ALU_o_Branch_Outcome <= 0;                  // move state to strongly not taken
+    
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 3B: STATE TRANSITIONS    ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 0");
+    $display("\tactual:   %d", BP_o_Prediction);
+    
+    if (BP_o_Prediction == NOT_TAKEN)
+        $display("result: passed.");
+    else
     begin
-        ALU_o_Branch_Valid = FALSE;                 
-        DEC_o_Is_Branch = FALSE;                 
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
     end
     
-    for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
+    BP_i_Enable <= LO;                          // pull enable lo for next use
     
-    /*=================================
-     * TEST 4: TWO BRANCHES IN FLIGHT
-     =================================*/
-    @(posedge clk)
+    /*===================================
+     * TEST 3C: STATE TRANSITIONS
+     ===================================*/
+    
+    #1
+    BP_i_Enable <= HI;                          // enable
+    BP_i_Index <= 0;                            // select counter 0
+    ALU_o_Branch_Outcome <= 0;                  // saturate state strongly not taken
+    
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 3C: STATE TRANSITIONS    ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 0");
+    $display("\tactual:   %d", BP_o_Prediction);
+    
+    if (BP_o_Prediction == NOT_TAKEN)
+        $display("result: passed.");
+    else
     begin
-        ALU_o_Branch_Valid = FALSE;                 // no branch in EX stage
-        DEC_o_Is_Branch = TRUE;                     // branch in DEC stage
-        i_Prediction = NOT_TAKEN;                   // predict not taken
-        i_ALU_Branch_Outcome = 1'bx;                // ignore branch resolution
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
     end
     
-    // "pass" branch instruction through pipeline
-	@(posedge clk)
+    BP_i_Enable <= LO;                          // pull enable lo for next use
+    
+    /*===================================
+     * TEST 3D: STATE TRANSITIONS
+     ===================================*/
+    
+    #1
+    BP_i_Enable <= HI;                          // enable
+    BP_i_Index <= 0;                            // select counter 0
+    ALU_o_Branch_Outcome <= 1;                  // move state to weakly not taken
+    
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 3D: STATE TRANSITIONS    ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 0");
+    $display("\tactual:   %d", BP_o_Prediction);
+    
+    if (BP_o_Prediction == NOT_TAKEN)
+        $display("result: passed.");
+    else
     begin
-        ALU_o_Branch_Valid = FALSE;                 
-        DEC_o_Is_Branch = FALSE;                 
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
     end
     
-	ALU_o_Branch_Valid = TRUE;                      // branch in EX stage
-	DEC_o_Is_Branch = TRUE;                         // branch in DEC stage
-    i_Prediction = TAKEN;                           // predict not taken
-    i_ALU_Branch_Outcome = TAKEN;                   // taken
+    BP_i_Enable <= LO;                          // pull enable lo for next use
     
-    // "pass" branch instruction through pipeline
-	@(posedge clk)
+    /*===================================
+     * TEST 3E: STATE TRANSITIONS
+     ===================================*/
+    
+    #1
+    BP_i_Enable <= HI;                          // enable
+    BP_i_Index <= 0;                            // select counter 0
+    ALU_o_Branch_Outcome <= 1;                  // move state to weakly taken
+    
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 3E: STATE TRANSITIONS    ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Prediction);
+    
+    if (BP_o_Prediction == TAKEN)
+        $display("result: passed.");
+    else
     begin
-        ALU_o_Branch_Valid = FALSE;                 
-        DEC_o_Is_Branch = FALSE;                 
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
     end
     
-    for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
+    BP_i_Enable <= LO;                          // pull enable lo for next use
     
+    /*===================================
+     * TEST 3F: STATE TRANSITIONS
+     ===================================*/
+    
+    #1
+    BP_i_Enable <= HI;                          // enable
+    BP_i_Index <= 0;                            // select counter 0
+    ALU_o_Branch_Outcome <= 1;                  // move state to strongly taken
+    
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 3F: STATE TRANSITIONS    ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Prediction);
+    
+    if (BP_o_Prediction == TAKEN)
+        $display("result: passed.");
+    else
+    begin
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
+    end
+    
+    BP_i_Enable <= LO;                          // pull enable lo for next use
+    
+    /*===================================
+     * TEST 3G: STATE TRANSITIONS
+     ===================================*/
+    
+    #1
+    BP_i_Enable <= HI;                          // enable
+    BP_i_Index <= 0;                            // select counter 0
+    ALU_o_Branch_Outcome <= 1;                  // saturate state strongly taken
+    
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 3G: STATE TRANSITIONS    ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Prediction);
+    
+    if (BP_o_Prediction == TAKEN)
+        $display("result: passed.");
+    else
+    begin
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
+    end
+    
+    BP_i_Enable <= LO;                          // pull enable lo for next use
+    
+    /*===================================
+     * TEST 3H: STATE TRANSITIONS
+     ===================================*/
+    
+    #1
+    BP_i_Enable <= HI;                           // enable
+    BP_i_Index <= 0;                             // select counter 0
+    ALU_o_Branch_Outcome <= 0;                   // move state to weakly taken
+    
+    #1
+    $display("");
+    $display("-------------------------------");
+    $display(" TEST 3H: STATE TRANSITIONS    ");
+    $display("-------------------------------");
+    $display("BP_o_Prediction");
+    $display("\texpected: 1");
+    $display("\tactual:   %d", BP_o_Prediction);
+    
+    if (BP_o_Prediction == TAKEN)
+        $display("result: passed.");
+    else
+    begin
+        $display("result: FAILED. BP_o_Prediction does not match expected value.");
+        errors <= errors + 1;
+    end
+    
+    BP_i_Enable <= LO;                          // pull enable lo for next use
+    
+    /*=================
+     * END TEST BENCH
+     =================*/
+    #1
+    $display("");
+    $display("=========================================");
+    $display(" END BP - COUNTER TABLE TEST             ");
+    $display(" errors: %d", errors);
+    $display("=========================================");
+
     $stop;
     
 /*=================

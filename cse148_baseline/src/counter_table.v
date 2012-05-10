@@ -5,8 +5,9 @@
  *
  * Version  Date        Comment
  * ----------------------------------------------------------------------------
- *   1.1    05/01/12    Added & cleaned-up comments. Changed implementation to
- *                      4-state FSM.
+ *   1.2    05/08/12    Changed implementation from clocked to edge-triggered.
+ *   1.1    05/01/12    Added & cleaned-up comments. Changed saturation counter
+ *                      implementation to 4-state FSM.
  *   1.0    04/26/12    Initial design.
  *
  * Description:
@@ -16,7 +17,6 @@
  =============================================================================*/
 module counter_table #(parameter BPRED_WIDTH)
 (
-	input i_Clk,
     input i_Enable,                     // enables state change
 	input i_Reset,
 	
@@ -48,10 +48,10 @@ reg [1:0] counter_table [TABLE_SIZE-1:0];   // internal counter table
  ========================*/
 assign o_Prediction = counter_table[i_Index][1];
 
-/*======================
- * COMBINATORIAL LOGIC
- ======================*/
-always@(posedge i_Clk or negedge i_Reset)
+/*=======================
+ * EDGE-TRIGGERED LOGIC
+ =======================*/
+always@(posedge i_Enable or negedge i_Reset)
 begin
     // active-lo reset
     if (!i_Reset)

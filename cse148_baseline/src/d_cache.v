@@ -1,15 +1,7 @@
-/* d_cache.v
-* Author: Pravin P. Prabhu
-* Last Revision: 1/5/11
-* Abstract:
-*	Provides a simple data cache implementation. Fetches data from main memory
-* and caches it for quick access. This cache does not implement write-through
-* and does not support byte-select (i.e. all accesses are full words).
-*/
 module d_cache	#(	
 					parameter DATA_WIDTH = 32,
-					parameter TAG_WIDTH = 14,
-					parameter INDEX_WIDTH = 5,
+					parameter TAG_WIDTH = 10,
+					parameter INDEX_WIDTH = 9,
 					parameter BLOCK_OFFSET_WIDTH = 2,
 					parameter MEM_MASK_WIDTH = 3
 				)
@@ -25,7 +17,7 @@ module d_cache	#(
 					// Outputs
 					output o_Ready,
 					output reg o_Valid,					// If done reading out a value.
-					output reg [DATA_WIDTH-1:0] o_Data,
+					output [DATA_WIDTH-1:0] o_Data,
 					
 					// Mem Transaction
 					output reg o_MEM_Valid,
@@ -39,6 +31,7 @@ module d_cache	#(
 				);
 
 	// consts
+	localparam DEBUG = 1'b1;
 	localparam FALSE = 1'b0;
 	localparam TRUE = 1'b1;
 	localparam UNKNOWN = 1'bx;
@@ -48,12 +41,14 @@ module d_cache	#(
 	
 	localparam ADDRESS_WIDTH = TAG_WIDTH+INDEX_WIDTH+BLOCK_OFFSET_WIDTH;
 	
+	reg debug; 
 	// Internal
 		// Reg'd inputs
-	reg [BLOCK_OFFSET_WIDTH-1:0] r_i_BlockOffset;
+	reg [(TAG_WIDTH+INDEX_WIDTH+BLOCK_OFFSET_WIDTH)-1:0] r_i_Address;
+	reg [BLOCK_OFFSET_WIDTH:0] r_i_BlockOffset;
 	reg [INDEX_WIDTH-1:0] r_i_Index;
 	reg [TAG_WIDTH-1:0] r_i_Tag;
-	reg [DATA_WIDTH-1:0] r_i_Write_Data;
+	reg [DATA_WIDTH-1:0] r_i_Write_Data, r_o_Data;
 	reg r_i_Read_Write_n;
 	
 		// Parsing
@@ -70,92 +65,102 @@ module d_cache	#(
 		// Dirty
 	reg Dirty_Array [0:(1<<INDEX_WIDTH)-1];
 	
-		// Hacks
-	reg [DATA_WIDTH-1:0] Populate_Data; 		// Override so we write user data to the cache instead of data from MEM
-	
+	//cache bank stuff
+	wire [31:0] bank0readdata, bank1readdata, bank2readdata, bank3readdata;
+	reg [31:0] bank0writedata, bank1writedata, bank2writedata, bank3writedata;
+	reg bank0we, bank1we, bank2we, bank3we;
+	reg finished_populate;
 		// States
 	reg [5:0] State;
 	
 	localparam STATE_READY = 0;				// Ready for incoming requests
-	localparam STATE_WRITE_HIT = 1;
+	localparam STATE_PAUSE = 1;
 	localparam STATE_POPULATE = 2;				// Cache miss - Populate cache line
 	localparam STATE_WRITEOUT = 3;			// Writes out dirty cache lines
 	
-	
-		// Counters
+
+	// Counters
 	integer i;
-	reg [8:0] Gen_Count;					// General counter
-	
+	reg [8:0] Gen_Count;						// General counter
+
 		// Hardwired assignments
 	assign o_Ready = (State==STATE_READY);
 	
+	wire populate = (r_i_Read_Write_n == WRITE) && i_MEM_Valid && (Gen_Count == r_i_BlockOffset) && (State == STATE_POPULATE);
+	wire [DATA_WIDTH-1:0] Populate_Data = populate ? r_i_Write_Data : i_MEM_Data;
+	wire cache_hit = i_Valid && Valid_Array[i_Index] && (Tag_Array[i_Index] == i_Tag) && !o_Valid;
+	wire cache_read_hit = cache_hit && (i_Read_Write_n == READ)&& (State == STATE_READY);
+	wire cache_write_hit =  cache_hit && (i_Read_Write_n == WRITE) && (State == STATE_READY);
+	wire cache_miss = !cache_hit && i_Valid && !o_Valid;
+	wire valid_read = (r_i_Read_Write_n == READ) && o_Valid;
 	
 	
-	// Combinatorial logic: What state are we in? How should we handle I/O?
-	always @(*)
-	begin
-		// Set defaults to avoid latch inference
-		o_Valid <= FALSE;
-		o_Data <= {DATA_WIDTH{UNKNOWN}};
-		Populate_Data <= i_MEM_Data;
-		
-		// Act asynchronously based on state
-		case(State)
-			// We're ready for requests
-			STATE_READY:
-			begin
-				// Support for single-cycle hits
-				if( i_Valid &&
-					Valid_Array[i_Index] &&
-					Tag_Array[i_Index] == i_Tag
-					)
-				begin
-					// Read hit.
-					o_Valid <= TRUE;
+	//async config for 1 cycle write hits
+	wire w_bank0we = cache_write_hit && (i_BlockOffset == 0)  || bank0we;
+	wire w_bank1we = cache_write_hit && (i_BlockOffset == 1)  || bank1we;
+	wire w_bank2we = cache_write_hit && (i_BlockOffset == 2)  || bank2we;
+	wire w_bank3we = cache_write_hit && (i_BlockOffset == 3)  || bank3we;
+	wire [DATA_WIDTH-1:0] w_bank0writedata = cache_write_hit ? i_Write_Data : bank0writedata;
+	wire [DATA_WIDTH-1:0] w_bank1writedata = cache_write_hit ? i_Write_Data : bank1writedata;
+	wire [DATA_WIDTH-1:0] w_bank2writedata = cache_write_hit ? i_Write_Data : bank2writedata;
+	wire [DATA_WIDTH-1:0] w_bank3writedata = cache_write_hit ? i_Write_Data : bank3writedata;
+	
+	//mux for async read hit outputs correctly on next cycle
+	assign o_Data = r_i_BlockOffset == 0 ? bank0readdata :
+					r_i_BlockOffset == 1 ? bank1readdata :
+					r_i_BlockOffset == 2 ? bank2readdata :
+					r_i_BlockOffset == 3 ? bank3readdata :
+					r_o_Data; //STATE POPULATE
+	
 
-					case( i_BlockOffset )
-						// Verilog doesn't allow generic indexing into arrays with operators..
-						0:	o_Data <= Data_Array[i_Index][(DATA_WIDTH*1)-1:0];
-						1:	o_Data <= Data_Array[i_Index][(DATA_WIDTH*2)-1:(DATA_WIDTH*1)];
-						2:	o_Data <= Data_Array[i_Index][(DATA_WIDTH*3)-1:(DATA_WIDTH*2)];
-						3:	o_Data <= Data_Array[i_Index][(DATA_WIDTH*4)-1:(DATA_WIDTH*3)];
-						default:	o_Data <= {DATA_WIDTH{UNKNOWN}};
-					endcase
-				end
-			end
-			
-			// We are handling a read miss - Repopulate cache line
-			STATE_POPULATE:
-			begin
-				if( i_MEM_Valid )
-				begin
-					// Is this the data we were waiting on?
-					if( Gen_Count == r_i_BlockOffset )
-					begin
-						o_Valid <= TRUE;
-						
-						if( r_i_Read_Write_n == READ )
-						begin
-							o_Data <= i_MEM_Data;
-						end
-						else
-						begin
-							Populate_Data <= r_i_Write_Data;	// Override with write data
-						end
-					end
-				end
-			end
-			
-			default:
-			begin
-			end
-		endcase
-	end
-
-	//reg [31:0] DebugMemory [(2**21)-1:0];
+	wire [INDEX_WIDTH-1:0] bank_Index = (State == STATE_READY) ? i_Index : r_i_Index;
+	
+	cache_bank databank 
+				(	// Inputs
+					.i_Clk(i_Clk),
+					.i_address(bank_Index),
+					.i_writedata(w_bank0writedata),
+					.i_we(w_bank0we),
+					
+					// Outputs
+					.o_readdata(bank0readdata)
+					
+				);
 		
-	// Stateful actions
-	always @(posedge i_Clk or negedge i_Reset_n)
+	cache_bank databank1 
+				(	// Inputs
+					.i_Clk(i_Clk),
+					.i_address(bank_Index),
+					.i_writedata(w_bank1writedata),
+					.i_we(w_bank1we),
+					
+					// Outputs
+					.o_readdata(bank1readdata)
+				);
+				
+		cache_bank databank2 
+				(	// Inputs
+					.i_Clk(i_Clk),
+					.i_address(bank_Index),
+					.i_writedata(w_bank2writedata),
+					.i_we(w_bank2we),
+					
+					// Outputs
+					.o_readdata(bank2readdata)
+				);
+				
+		cache_bank databank3 
+				(	// Inputs
+					.i_Clk(i_Clk),
+					.i_address(bank_Index),
+					.i_writedata(w_bank3writedata),
+					.i_we(w_bank3we),
+					
+					// Outputs
+					.o_readdata(bank3readdata)
+				);
+	
+always @(posedge i_Clk or negedge i_Reset_n)
 	begin
 
 	/*
@@ -173,116 +178,120 @@ module d_cache	#(
 		begin
 			State <= STATE_READY;
 			o_MEM_Valid <= FALSE;
-		end
-		else
-		begin
-			case( State )
-				STATE_READY:
-				begin
-					// Populate an existing clean or nonexistant cache line.
-					if( (i_Valid && !Valid_Array[i_Index]) ||
-						(i_Valid && Valid_Array[i_Index] && !Dirty_Array[i_Index] && (Tag_Array[i_Index] != i_Tag)) )
-					begin	
-						o_MEM_Valid <= TRUE;
-						o_MEM_Address <= {i_Tag,i_Index,{BLOCK_OFFSET_WIDTH+1{1'b0}}};
-						o_MEM_Read_Write_n <= READ;	
-						
-						// Prepare counter
-						Gen_Count <= 0;
-						
-						// Latch inputs
+		end else begin
+			bank0we <= FALSE;
+			bank1we <= FALSE;
+			bank2we <= FALSE;
+			bank3we <= FALSE;
+			finished_populate <= FALSE;
+			o_Valid <= FALSE;
+			case(State)
+				STATE_READY: begin
+					if(cache_read_hit) begin
+					  r_i_Read_Write_n <= READ;
+						o_Valid <= TRUE;
 						r_i_BlockOffset <= i_BlockOffset;
-						r_i_Index <= i_Index;
-						r_i_Tag <= i_Tag;
-						r_i_Write_Data <= i_Write_Data;
-						r_i_Read_Write_n <= i_Read_Write_n;
-						
-						State <= STATE_POPULATE;
-					end
-					else if( i_Valid && 
-						Valid_Array[i_Index] &&
-						Tag_Array[i_Index] != i_Tag )
-					begin
-						// Going to Writeout
-						if( Dirty_Array[i_Index] )
-						begin	
-							o_MEM_Valid <= TRUE;
-							o_MEM_Address <= {Tag_Array[i_Index],i_Index,{BLOCK_OFFSET_WIDTH+1{1'b0}}};	
-							o_MEM_Data <= Data_Array[i_Index][(DATA_WIDTH*1)-1:0];
-							o_MEM_Read_Write_n <= WRITE;
-
-							// Prepare counter
-							Gen_Count <= 1;
-							
-							// Latch inputs
-							r_i_BlockOffset <= i_BlockOffset;
-							r_i_Index <= i_Index;
-							r_i_Tag <= i_Tag;
-							r_i_Write_Data <= i_Write_Data;
-							r_i_Read_Write_n <= i_Read_Write_n;
-								
-							State <= STATE_WRITEOUT;
-						end
-					end
-					else if( i_Valid &&
-							 Valid_Array[i_Index] &&
-							 Tag_Array[i_Index] == i_Tag &&
-							 i_Read_Write_n == WRITE )
-					begin
-						// Write hit! Perform write.
+						if(debug)						
+							$display("read hit %x outputs %x", i_Address, r_o_Data);
+					end else if(cache_write_hit) begin
+						//Write hit!!
+						r_i_Read_Write_n <= WRITE;
+						o_Valid <= TRUE;
+						Dirty_Array[i_Index] <= TRUE;
+						/*
+						o_Data <= 0;
 						case( i_BlockOffset )
 							0:	Data_Array[i_Index][(DATA_WIDTH*1)-1:0] <= i_Write_Data;
 							1:	Data_Array[i_Index][(DATA_WIDTH*2)-1:(DATA_WIDTH*1)] <= i_Write_Data;
 							2:	Data_Array[i_Index][(DATA_WIDTH*3)-1:(DATA_WIDTH*2)] <= i_Write_Data;
 							3:	Data_Array[i_Index][(DATA_WIDTH*4)-1:(DATA_WIDTH*3)] <= i_Write_Data;
 							default:	$display("Warning: Invalid Gen Count value @ d_cache");						
-						endcase
-						
-						Dirty_Array[i_Index] <= TRUE;
+						endcase */
+						if(debug)
+							$display("write hit %x to %x", i_Write_Data, i_Address);
+					end else if(cache_miss) begin // miss
+						//prepare registers
+						r_i_Address <= i_Address;
+						r_i_BlockOffset <= i_BlockOffset;
+						r_i_Index <= i_Index;
+						r_i_Tag <= i_Tag;
+						r_i_Write_Data <= i_Write_Data;
+						r_i_Read_Write_n <= i_Read_Write_n;
+						o_MEM_Valid <= TRUE;
+						//if the cache line isnt dirty just populate
+						if(!Valid_Array[i_Index] || !Dirty_Array[i_Index]) begin
+							Gen_Count <= 0;
+							State <= STATE_POPULATE;
+							o_MEM_Read_Write_n <= READ;
+							o_MEM_Address <= {i_Tag,i_Index,{BLOCK_OFFSET_WIDTH+1{1'b0}}};
+							if(debug)
+								$display("read miss on address %x", i_Address);
+						end else if(Dirty_Array[i_Index]) begin
+							//if its dirty write it to mem before populating!
+							Gen_Count <= 0;
+							State <= STATE_WRITEOUT;
+							o_MEM_Address <= {Tag_Array[i_Index],i_Index,{BLOCK_OFFSET_WIDTH+1{1'b0}}};	
+							if(debug)
+								$display("write miss %x to %x", i_Write_Data, i_Address);
+						end
 					end
 				end
-				
-				STATE_WRITEOUT:
-				begin
-					if( i_MEM_Data_Read )
-					begin
+				STATE_WRITEOUT: begin //State == 3
+					o_MEM_Read_Write_n <= WRITE;
+					o_MEM_Data <= bank0readdata;
+					Gen_Count <= 1;
+					if(i_MEM_Data_Read) begin
 						case( Gen_Count )
-							1:	o_MEM_Data <= Data_Array[r_i_Index][(DATA_WIDTH*2)-1:(DATA_WIDTH*1)];
-							2:	o_MEM_Data <= Data_Array[r_i_Index][(DATA_WIDTH*3)-1:(DATA_WIDTH*2)];
-							3:	o_MEM_Data <= Data_Array[r_i_Index][(DATA_WIDTH*4)-1:(DATA_WIDTH*3)];
-							4:	o_MEM_Data <= {DATA_WIDTH{UNKNOWN}};		// We are done on this cycle.
+							//0:	o_MEM_Data <= bank0readdata;
+							1:	o_MEM_Data <= bank1readdata;
+							2:	o_MEM_Data <= bank2readdata;
+							3:	o_MEM_Data <= bank3readdata;		// We are done on this cycle.
 							default:	$display("Warning: Invalid Gen Count value @ d_cache writeout");
 						endcase
-
-						// Account for the input
-						if( i_MEM_Last )
-						begin
+						
+						if(i_MEM_Last) begin
 							Gen_Count <= 0;
 							State <= STATE_POPULATE;
 							o_MEM_Valid <= TRUE;
 							o_MEM_Address <= {r_i_Tag,r_i_Index,{BLOCK_OFFSET_WIDTH+1{1'b0}}};
 							o_MEM_Read_Write_n <= READ;								
 							Dirty_Array[r_i_Index] <= FALSE;	// Cache line was cleaned
-						end
-						else
-						begin
+						end else begin
 							Gen_Count <= Gen_Count + 9'd1;
 						end
 					end
 				end
-				
-				STATE_POPULATE:
-				begin
-					if( i_MEM_Valid )
-					begin
+				STATE_POPULATE: begin //State == 2
+					if( i_MEM_Valid ) begin
 						case( Gen_Count )
-							0:	Data_Array[r_i_Index][(DATA_WIDTH*1)-1:0] <= Populate_Data;
-							1:	Data_Array[r_i_Index][(DATA_WIDTH*2)-1:(DATA_WIDTH*1)] <= Populate_Data;
-							2:	Data_Array[r_i_Index][(DATA_WIDTH*3)-1:(DATA_WIDTH*2)] <= Populate_Data;
-							3:	Data_Array[r_i_Index][(DATA_WIDTH*4)-1:(DATA_WIDTH*3)] <= Populate_Data;
+							//populate data will = r_i_Data if we are writing and on the right gen count
+							//otherwise it will just be i_MEM_Data
+								0:	begin
+									bank0writedata <= Populate_Data;
+									bank0we <= 1;
+									end
+								1:	begin
+									bank1writedata <= Populate_Data;
+									bank1we <= 1;
+									end
+								2:	begin
+									bank2writedata <= Populate_Data;
+									bank2we <= 1;
+									end
+								3:	begin
+									bank3writedata <= Populate_Data;
+									bank3we <= 1;
+									end
 							default:	$display("Warning: Invalid Gen Count value @ d_cache");
 						endcase
 						
+						
+			
+						if((Gen_Count == r_i_BlockOffset) && (r_i_Read_Write_n == READ)) begin
+							r_o_Data <= Populate_Data;
+							if(debug)
+								$display("Populate address %h data is %h", r_i_Address, Populate_Data);
+						end
 						// Account for the input
 						Gen_Count <= Gen_Count + 9'd1;
 					
@@ -297,21 +306,67 @@ module d_cache	#(
 								Dirty_Array[r_i_Index] <= TRUE;
 							else
 								Dirty_Array[r_i_Index] <= FALSE;
-							State <= STATE_READY;
+							//tell that cache is ready
+							State <= STATE_PAUSE;
+							r_i_BlockOffset <= 4;
 						end
 					end
+				end
+				STATE_PAUSE: begin
+					o_Valid <= TRUE;
+					State <= STATE_READY;
 				end
 			endcase
 		end
 	end
-	
+							
 	initial
 	begin
 		// Mark everything as invalid
+		debug <= 0;
+		finished_populate <= FALSE;
 		for(i=0;i<(1<<INDEX_WIDTH);i=i+1)
 		begin
 			Valid_Array[i] = FALSE;
+			Dirty_Array[i] = FALSE;
 		end
 	end
 	
 endmodule
+
+module cache_bank #(	
+					parameter DATA_WIDTH = 32,
+					parameter TAG_WIDTH = 10,
+					parameter INDEX_WIDTH = 9,
+					parameter BLOCK_OFFSET_WIDTH = 2,
+					parameter MEM_MASK_WIDTH = 3
+				)
+	(o_readdata, i_address, i_writedata, i_we, i_Clk);
+   output reg [DATA_WIDTH-1:0] o_readdata;
+   input [DATA_WIDTH-1:0] i_writedata;
+   input [INDEX_WIDTH-1:0] i_address;
+   input i_we, i_Clk;
+   reg [DATA_WIDTH-1:0] mem [0:(1<<INDEX_WIDTH)-1];
+    always @(posedge i_Clk) begin
+        if (i_we)
+            mem[i_address] <= i_writedata;
+        o_readdata <= mem[i_address];
+   end
+endmodule
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	

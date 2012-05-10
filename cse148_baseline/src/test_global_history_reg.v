@@ -76,170 +76,173 @@ begin
     $display(" BEGIN BP - COUNTER TABLE TEST           ");
     $display("=========================================");
     
-    errors = 0;
+    errors <= 0;
 
     /*===============
      * TEST 1: RESET
      ================*/
 	Reset_n = LO;                                   // reset
-	for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
-	Reset_n = HI;                                   // enable
     
-	for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
-    
-    $display("");
-    $display("-----------------------------------------");
-    $display(" TEST 1: RESET                           ");
-    $display("-----------------------------------------");
-    $display("BP_o_Global_History[0]");
-    $display("\texpected: 1");
-    $display("\tactual:   %d", BP_o_Global_History[0]);
-    
-    if (BP_o_Global_History[0] == TAKEN)
-        $display("result: passed.");
-    else
+	@(posedge clk)
     begin
-        $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
-        errors = errors + 1;
+        Reset_n <= HI;                               // enable
+    
+        $display("");
+        $display("-----------------------------------------");
+        $display(" TEST 1: RESET                           ");
+        $display("-----------------------------------------");
+        $display("BP_o_Global_History[0]");
+        $display("\texpected: 1");
+        $display("\tactual:   %d", BP_o_Global_History[0]);
+        
+        if (BP_o_Global_History[0] == TAKEN)
+            $display("result: passed.");
+        else
+        begin
+            $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
+            errors <= errors + 1;
+        end
     end
+    
+    for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
 	
 	/*==========================================
      * TEST 2: BRANCH PREDICTION BIT INSERTION
      ==========================================*/
     @(posedge clk)
     begin
-        ALU_o_Branch_Valid = FALSE;                 // no branch in EX stage
-        DEC_o_Is_Branch = TRUE;                     // branch in DEC stage
-        BP_i_Prediction = NOT_TAKEN;                // predict not taken
-        ALU_o_Branch_Outcome = 1'bx;                // ignore branch resolution
+        ALU_o_Branch_Valid <= FALSE;                 // no branch in EX stage
+        DEC_o_Is_Branch <= TRUE;                     // branch in DEC stage
+        BP_i_Prediction <= NOT_TAKEN;                // predict not taken
+        ALU_o_Branch_Outcome <= 1'bx;                // ignore branch resolution
     end
     
     // "pass" branch instruction through pipeline
 	@(posedge clk)
     begin
-        ALU_o_Branch_Valid = FALSE;                 
-        DEC_o_Is_Branch = FALSE;                 
+        ALU_o_Branch_Valid <= FALSE;                 
+        DEC_o_Is_Branch <= FALSE;                 
+    
+        $display("");
+        $display("-----------------------------------------");
+        $display(" TEST 2: BRANCH PREDICTION BIT INSERTION ");
+        $display("-----------------------------------------");
+        $display("BP_o_Global_History[0]");
+        $display("\texpected: 0");
+        $display("\tactual:   %d", BP_o_Global_History[0]);
+        
+        if (BP_o_Global_History[0] == NOT_TAKEN)
+            $display("result: passed.");
+        else
+        begin
+            $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
+            errors <= errors + 1;
+        end
     end
     
     for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
-    
-    $display("");
-    $display("-----------------------------------------");
-    $display(" TEST 2: BRANCH PREDICTION BIT INSERTION ");
-    $display("-----------------------------------------");
-    $display("BP_o_Global_History[0]");
-    $display("\texpected: 0");
-    $display("\tactual:   %d", BP_o_Global_History[0]);
-    
-    if (BP_o_Global_History[0] == NOT_TAKEN)
-        $display("result: passed.");
-    else
-    begin
-        $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
-        errors = errors + 1;
-    end
 
 	/*===================================
      * TEST 3: BRANCH RESOLUTION UPDATE
      ===================================*/
     @(posedge clk)
     begin
-        ALU_o_Branch_Valid = TRUE;                  // branch in EX stage
-        DEC_o_Is_Branch = FALSE;                    // no branch in DEC stage
-        BP_i_Prediction = 1'bx;                     // ignore prediction
-        ALU_o_Branch_Outcome = TAKEN;               // taken
+        ALU_o_Branch_Valid <= TRUE;                  // branch in EX stage
+        DEC_o_Is_Branch <= FALSE;                    // no branch in DEC stage
+        BP_i_Prediction <= 1'bx;                     // ignore prediction
+        ALU_o_Branch_Outcome <= TAKEN;               // taken
     end
     
     // "pass" branch instruction through pipeline
 	@(posedge clk)
     begin
-        ALU_o_Branch_Valid = FALSE;                 
-        DEC_o_Is_Branch = FALSE;                 
+        ALU_o_Branch_Valid <= FALSE;                 
+        DEC_o_Is_Branch <= FALSE;                 
+    
+        $display("");
+        $display("-----------------------------------------");
+        $display(" TEST 3: BRANCH RESOLUTION UPDATE        ");
+        $display("-----------------------------------------");
+        $display("BP_o_Global_History[0]");
+        $display("\texpected: 1");
+        $display("\tactual:   %d", BP_o_Global_History[0]);
+        
+        if (BP_o_Global_History[0] == TAKEN)
+            $display("result: passed.");
+        else
+        begin
+            $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
+            errors <= errors + 1;
+        end
     end
     
     for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
-    
-    $display("");
-    $display("-----------------------------------------");
-    $display(" TEST 3: BRANCH RESOLUTION UPDATE        ");
-    $display("-----------------------------------------");
-    $display("BP_o_Global_History[0]");
-    $display("\texpected: 1");
-    $display("\tactual:   %d", BP_o_Global_History[0]);
-    
-    if (BP_o_Global_History[0] == TAKEN)
-        $display("result: passed.");
-    else
-    begin
-        $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
-        errors = errors + 1;
-    end
     
     /*=================================
      * TEST 4: TWO BRANCHES IN FLIGHT
      =================================*/
     @(posedge clk)
     begin
-        ALU_o_Branch_Valid = FALSE;                 // no branch in EX stage
-        DEC_o_Is_Branch = TRUE;                     // branch in DEC stage
-        BP_i_Prediction = NOT_TAKEN;                // predict not taken
-        ALU_o_Branch_Outcome = 1'bx;                // ignore branch resolution
+        ALU_o_Branch_Valid <= FALSE;                 // no branch in EX stage
+        DEC_o_Is_Branch <= TRUE;                     // branch in DEC stage
+        BP_i_Prediction <= NOT_TAKEN;                // predict not taken
+        ALU_o_Branch_Outcome <= 1'bx;                // ignore branch resolution
     end
     
     // "pass" branch instruction through pipeline
 	@(posedge clk)
     begin
-        ALU_o_Branch_Valid = FALSE;                 
-        DEC_o_Is_Branch = FALSE;                 
+        ALU_o_Branch_Valid <= FALSE;                 
+        DEC_o_Is_Branch <= FALSE;                 
     end
     
     @(posedge clk)
     begin
-        ALU_o_Branch_Valid = TRUE;                  // branch in EX stage
-        DEC_o_Is_Branch = TRUE;                     // branch in DEC stage
-        BP_i_Prediction = TAKEN;                    // predict not taken
-        ALU_o_Branch_Outcome = TAKEN;               // taken
+        ALU_o_Branch_Valid <= TRUE;                  // branch in EX stage
+        DEC_o_Is_Branch <= TRUE;                     // branch in DEC stage
+        BP_i_Prediction <= TAKEN;                    // predict not taken
+        ALU_o_Branch_Outcome <= TAKEN;               // taken
     end
     
     // "pass" branch instruction through pipeline
 	@(posedge clk)
     begin
-        ALU_o_Branch_Valid = FALSE;                 
-        DEC_o_Is_Branch = FALSE;                 
-    end
+        ALU_o_Branch_Valid <= FALSE;                 
+        DEC_o_Is_Branch <= FALSE;                 
     
+        $display("");
+        $display("-----------------------------------------");
+        $display(" TEST 4: TWO BRANCHES IN FLIGHT          ");
+        $display("-----------------------------------------");
+        $display("BP_o_Global_History[0]");
+        $display("\texpected: 1");
+        $display("\tactual:   %d", BP_o_Global_History[0]);
+        $display("BP_o_Global_History[1]");
+        $display("\texpected: 1");
+        $display("\tactual:   %d", BP_o_Global_History[1]);
+        
+        if (BP_o_Global_History[0] != TAKEN)
+        begin
+            $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
+            errors <= errors + 1;
+        end
+        if (BP_o_Global_History[1] != TAKEN)
+        begin
+            $display("result: FAILED. BP_o_Global_History[1] does not match expected value.");
+            errors <= errors + 1;
+        end
+        if (BP_o_Global_History[0] == TAKEN && BP_o_Global_History[1] == TAKEN)
+            $display("result: passed.");
+    end      
+        
     for (k = 0; k < 2; k = k + 1) @(posedge clk);   // idle 2 cycles
-    
-    $display("");
-    $display("-----------------------------------------");
-    $display(" TEST 4: TWO BRANCHES IN FLIGHT          ");
-    $display("-----------------------------------------");
-    $display("BP_o_Global_History[0]");
-    $display("\texpected: 1");
-    $display("\tactual:   %d", BP_o_Global_History[0]);
-    $display("BP_o_Global_History[1]");
-    $display("\texpected: 1");
-    $display("\tactual:   %d", BP_o_Global_History[1]);
-    
-    if (BP_o_Global_History[0] != TAKEN)
-    begin
-        $display("result: FAILED. BP_o_Global_History[0] does not match expected value.");
-        errors = errors + 1;
-    end
-    if (BP_o_Global_History[1] != TAKEN)
-    begin
-        $display("result: FAILED. BP_o_Global_History[1] does not match expected value.");
-        errors = errors + 1;
-    end
-    if (BP_o_Global_History[0] == TAKEN && BP_o_Global_History[1] == TAKEN)
-        $display("result: passed.");
         
     /*=================
      * END TEST BENCH
      =================*/
     $display("");
     $display("=========================================");
-    $display(" END BP - COUNTER TABLE TEST             ");
+    $display(" END BP - GLOBAL HISTORY REGISTER TEST   ");
     $display(" errors: %d", errors);
     $display("=========================================");
 
