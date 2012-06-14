@@ -247,13 +247,13 @@ begin
 			
 			//===========
 			// Jumps
-//			ALUCTL_J:
+			ALUCTL_J: ;
 //			begin
 //				o_Branch_Valid <= 1;
 //				o_Branch_Outcome <= 1;
 //			end
 //
-//			ALUCTL_JR:
+			ALUCTL_JR: ;
 //			begin
 //				o_Branch_Valid <= 1;
 //				o_Branch_Outcome <= 1;

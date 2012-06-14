@@ -4,7 +4,8 @@ module pipe_dec_ex	#(
 						parameter DATA_WIDTH = 32,
 						parameter REG_ADDR_WIDTH = 5,
 						parameter ALU_CTLCODE_WIDTH = 8,
-						parameter MEM_MASK_WIDTH = 3
+						parameter MEM_MASK_WIDTH = 3,
+                        parameter BPRED_WIDTH = 9
 					)							
 					(	
 						// Inputs
@@ -39,7 +40,11 @@ module pipe_dec_ex	#(
 						input [DATA_WIDTH-1:0] i_Operand2,
 						output reg [DATA_WIDTH-1:0] o_Operand2,
 						input [ADDRESS_WIDTH-1:0] i_Branch_Target,
-						output reg [ADDRESS_WIDTH-1:0] o_Branch_Target
+						output reg [ADDRESS_WIDTH-1:0] o_Branch_Target,
+                        input [BPRED_WIDTH-1:0] i_Resolution_Index,
+                        output reg [BPRED_WIDTH-1:0] o_Resolution_Index,
+                        input i_Prediction,
+                        output reg o_Prediction
 					);
 		
 		// Asynchronous output driver
@@ -61,6 +66,8 @@ module pipe_dec_ex	#(
 			o_Branch_Target <= 0;
 			o_Mem_Write_Data <= 0;
 			o_Mem_Mask <= 0;
+            o_Resolution_Index <= 0;
+            o_Prediction <= 0;
 		end
 		else
 		begin
@@ -82,6 +89,8 @@ module pipe_dec_ex	#(
 					o_Branch_Target <= 0;
 					o_Mem_Write_Data <= 0;
 					o_Mem_Mask <= 0;
+                    o_Resolution_Index <= 0;
+                    o_Prediction <= 0;
 				end
 				else
 				begin
@@ -99,6 +108,8 @@ module pipe_dec_ex	#(
 					o_Operand1 <= i_Operand1;
 					o_Operand2 <= i_Operand2;
 					o_Branch_Target <= i_Branch_Target;
+                    o_Resolution_Index <= i_Resolution_Index;
+                    o_Prediction <= i_Prediction;
 				end
 			end
 		end

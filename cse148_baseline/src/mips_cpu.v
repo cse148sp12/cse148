@@ -88,6 +88,17 @@ assign SRAM_OE_N = 0;
 assign SRAM_CE_N = 0;
 
 //===================================================================
+// Branch Predictor Signals
+wire [BPRED_WIDTH-1:0] DEC_i_Resolution_Index;
+wire [BPRED_WIDTH-1:0] EX_o_Resolution_Index;
+wire DEC_BP_Prediction;
+wire EX_BP_Prediction;
+
+/* bypass unit signals */
+wire DEC_o_BYPASS_Is_Branch;
+wire DEC_o_BYPASS_Is_Jump;
+
+//===================================================================
 // IFetch Signals
 
 wire IFetch_i_Flush;			// Flush for IFetch
@@ -148,7 +159,7 @@ wire Hazard_Flush_DEC;		// 2nd pipe flush
 wire Hazard_Stall_EX;			// 2nd pipe stall
 
 wire [ADDRESS_WIDTH-1:0] DEC_o_PC;
-assign DEC_o_PC = DEC_i_PC;
+assign DEC_o_PC = IMEM_i_Address;
 
 //===================================================================
 // Execute Signals
@@ -176,7 +187,7 @@ wire [1:0] ALU_o_Pass_Done_Change;							// indicates the above signal is meanin
 															// 1 = pass, 2 = fail, 3 = done
 
 	// Cumulative signals
-wire EX_Take_Branch = ALU_o_Valid && ALU_o_Branch_Valid && ALU_o_Branch_Outcome;		// Whether we should branch or not.
+wire EX_Take_Branch = ALU_o_Valid && ALU_o_Branch_Valid && (EX_BP_Prediction != ALU_o_Branch_Outcome);		// Whether we should branch or not.
 
 	//==============
 	// Pipe signals: EX->MEM
@@ -316,6 +327,8 @@ assign i_Clk = Local_Clock;
 // Performance metrics
 reg [31:0] CycleCount;					// # of cycles that have passed since reset
 reg [31:0] InstructionsExecuted;	// # of insts that have went through WB stage since reset
+reg [31:0] BranchCount;
+reg [31:0] BranchMispredicts;
 
 always @(posedge i_Clk or negedge Internal_Reset_n)
 begin
@@ -324,6 +337,8 @@ begin
 		// Asynch. reset on counters
 		CycleCount <= 32'b0;
 		InstructionsExecuted <= 32'b0;
+        BranchCount <= 32'b0;
+        BranchMispredicts <= 32'b0;
 	end
 	else
 	begin
@@ -334,6 +349,10 @@ begin
 			if( !Hazard_Stall_DEC && !Hazard_Flush_DEC && !DEC_Noop )
 				InstructionsExecuted <= InstructionsExecuted + 32'b1;
 			CycleCount <= CycleCount + 32'b1;	// Always count another cycle
+            if( !Hazard_Stall_DEC && !Hazard_Flush_DEC && DEC_o_Is_Branch )
+                BranchCount <= BranchCount + 32'b1;
+            if( !Hazard_Stall_DEC && !Hazard_Flush_DEC && EX_Take_Branch )
+                BranchMispredicts <= BranchMispredicts + 32'b1;
 		end
 	end
 end
@@ -551,7 +570,8 @@ pipe_dec_ex #(	.ADDRESS_WIDTH(ADDRESS_WIDTH),
 				.DATA_WIDTH(DATA_WIDTH),
 				.REG_ADDR_WIDTH(REG_ADDR_WIDTH),
 				.ALU_CTLCODE_WIDTH(ALU_CTLCODE_WIDTH),
-				.MEM_MASK_WIDTH(MEM_MASK_WIDTH)
+				.MEM_MASK_WIDTH(MEM_MASK_WIDTH),
+                .BPRED_WIDTH(BPRED_WIDTH)
 			)
 			PIPE_DEC_EX
 			(		// Inputs
@@ -586,7 +606,11 @@ pipe_dec_ex #(	.ADDRESS_WIDTH(ADDRESS_WIDTH),
 				.i_Operand2(DEC_o_Uses_Immediate?DEC_o_Immediate:FORWARD_o_Forwarded_Data_2),		// Convention - Operand2 mapped to immediates
 				.o_Operand2(ALU_i_Operand2),
 				.i_Branch_Target(DEC_o_Jump_Reg?FORWARD_o_Forwarded_Data_1[ADDRESS_WIDTH-1:0]:DEC_o_Branch_Target),
-				.o_Branch_Target(EX_i_Branch_Target)
+				.o_Branch_Target(EX_i_Branch_Target),
+                .i_Resolution_Index(DEC_i_Resolution_Index),
+                .o_Resolution_Index(EX_o_Resolution_Index),
+                .i_Prediction(DEC_BP_Prediction),
+                .o_Prediction(EX_BP_Prediction)
 			);
 
 alu	#(	.DATA_WIDTH(DATA_WIDTH),
@@ -860,8 +884,10 @@ hazard_detection_unit 	#(  .DATA_WIDTH(DATA_WIDTH),
 							.i_DEC_RS_Addr(DEC_o_Read_Register_1),							// RS request addr.
 							.i_DEC_Uses_RT(DEC_o_Uses_RT),								// DEC wants to use RT
 							.i_DEC_RT_Addr(DEC_o_Read_Register_2),							// RT request addr.
-							.i_DEC_Branch_Instruction(DEC_o_Is_Branch),
-                            .i_DEC_Jump_Instruction(DEC_o_Is_Jump),
+							.i_DEC_Branch_Instruction(DEC_o_BYPASS_Is_Branch),
+                            .i_DEC_Branch_Prediction(DEC_BP_Prediction),
+                            .i_DEC_Branch_Target(DEC_o_Jump_Reg ? FORWARD_o_Forwarded_Data_1[ADDRESS_WIDTH-1:0] : DEC_o_Branch_Target),
+                            .i_DEC_Jump_Instruction(DEC_o_BYPASS_Is_Jump),
 							
 							//===============================================
 							// Feedback from IF
@@ -872,8 +898,7 @@ hazard_detection_unit 	#(  .DATA_WIDTH(DATA_WIDTH),
 							.i_EX_Uses_Mem(EX_i_Mem_Valid),
 							.i_EX_Write_Addr(EX_i_Write_Addr),							// What EX will write to
 							.i_EX_Branch(EX_Take_Branch),							// If EX says we are branching
-							.i_EX_Branch_Target(DEC_o_Is_Jump ? ( DEC_o_Jump_Reg ? FORWARD_o_Forwarded_Data_1[ADDRESS_WIDTH-1:0] : DEC_o_Branch_Target ) :
-                                                                  EX_i_Branch_Target),
+							.i_EX_Branch_Target(ALU_o_Branch_Outcome ? EX_i_Branch_Target : ALU_i_PC),
 							
 							// Feedback from MEM
 							.i_MEM_Uses_Mem(DMEM_i_Mem_Valid),								// If it's a memop
@@ -910,7 +935,16 @@ hazard_detection_unit 	#(  .DATA_WIDTH(DATA_WIDTH),
 							.o_WB_Stall(Hazard_Stall_WB),
 							.o_WB_Smash(Hazard_Flush_WB)
 						);
-
+                        
+bypass_unit BYPASS_UNIT
+            (
+                .i_DEC_Is_Branch(DEC_o_Is_Branch),
+                .i_DEC_Is_Jump(DEC_o_Is_Jump),
+                .i_DEC_Stall(Hazard_Stall_DEC),
+                .o_DEC_Is_Branch(DEC_o_BYPASS_Is_Branch),
+                .o_DEC_Is_Jump(DEC_o_BYPASS_Is_Jump)
+            );
+                        
 branch_predictor    #(  .BPRED_WIDTH(BPRED_WIDTH))
                     BPRED
                     (
@@ -918,14 +952,14 @@ branch_predictor    #(  .BPRED_WIDTH(BPRED_WIDTH))
                         .i_Reset_n(Internal_Reset_n),
                         .i_ALU_Branch_Valid(ALU_o_Branch_Valid), 
                         .i_DEC_Is_Branch(DEC_o_Is_Branch),                      
-                        //.i_Resolution_Index(EX_o_Resolution_Index), 
+                        .i_Resolution_Index(EX_o_Resolution_Index), 
                         .i_ALU_Branch_Outcome(ALU_o_Branch_Outcome),
-                        .i_PC(DEC_i_PC[BPRED_WIDTH-1:0])
+                        .i_PC(DEC_i_PC[BPRED_WIDTH-1:0]),
                         // output
-                        //.o_Resolution_Index(DEC_i_Resolution_Index)
-                        //.o_Prediction(BP_o_Prediction)
+                        .o_Resolution_Index(DEC_i_Resolution_Index),
+                        .o_Prediction(DEC_BP_Prediction)
                     );
-                    
+
 
 //===================================================================
 //	Initialization

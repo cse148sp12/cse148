@@ -35,6 +35,8 @@ module hazard_detection_unit	#(	parameter DATA_WIDTH=32,
 								input i_DEC_Uses_RT,								// DEC wants to use RT
 								input [REG_ADDR_WIDTH-1:0] i_DEC_RT_Addr,		// RT request addr.
 								input i_DEC_Branch_Instruction,						// There is a branch inst. in DEC.
+                                input i_DEC_Branch_Prediction,                      // Prediction for branch inst. in DEC.
+                                input [ADDRESS_WIDTH-1:0] i_DEC_Branch_Target,
                                 input i_DEC_Jump_Instruction,                       // There is a jump inst. in DEC.
 								
 								//===============================================
@@ -45,7 +47,7 @@ module hazard_detection_unit	#(	parameter DATA_WIDTH=32,
 								input i_EX_Writes_Back,								// EX is valid for analysis
 								input i_EX_Uses_Mem,
 								input [REG_ADDR_WIDTH-1:0] i_EX_Write_Addr,							// What EX will write to
-								input i_EX_Branch,									// If EX says we are branching
+								input i_EX_Branch,									// If EX says we are branching (mispredict)
 								input [ADDRESS_WIDTH-1:0] i_EX_Branch_Target,
 								
 								// Feedback from MEM
@@ -99,8 +101,8 @@ module hazard_detection_unit	#(	parameter DATA_WIDTH=32,
 	
 		// Branch handling
 	assign o_IF_Smash = (r_Branch_IF_Hazard_Smash || r_IF_Smash_Transient);
-	assign o_IF_Branch = i_EX_Branch || i_DEC_Jump_Instruction || r_IF_Load;
-	assign o_IF_Branch_Target = (i_EX_Branch || i_DEC_Jump_Instruction) ? i_EX_Branch_Target : r_IF_Load_Address;
+    assign o_IF_Branch = (i_EX_Branch || (i_DEC_Branch_Instruction && i_DEC_Branch_Prediction) || i_DEC_Jump_Instruction || r_IF_Load);
+	assign o_IF_Branch_Target = i_EX_Branch ? i_EX_Branch_Target : ( ( (i_DEC_Branch_Instruction && i_DEC_Branch_Prediction) || i_DEC_Jump_Instruction ) ? i_DEC_Branch_Target : r_IF_Load_Address ); 
 	
 		// Hazard prevention: Smash IF instructions that are partway
 		// fetched as we recognize a branch. Stop the instruction that
@@ -138,7 +140,7 @@ module hazard_detection_unit	#(	parameter DATA_WIDTH=32,
 		else
 		begin
 			if( o_IF_Stall &&
-				(i_EX_Branch || i_DEC_Jump_Instruction) )
+				(i_EX_Branch || (i_DEC_Branch_Instruction && i_DEC_Branch_Prediction) || i_DEC_Jump_Instruction) )
 			begin
 				// Branch during a stalling period. Hold on to the branch.
 				r_IF_Load <= TRUE;
@@ -197,8 +199,7 @@ module hazard_detection_unit	#(	parameter DATA_WIDTH=32,
 		
 			// If we have a branch operation in DEC, then we have to keep waiting
 			// until the delay slot inst has been successfully read from imem
-			if( i_DEC_Branch_Instruction &&
-				!i_IF_Done )
+            if( (i_DEC_Branch_Instruction || i_DEC_Jump_Instruction) && !i_IF_Done )
 			begin
 				o_DEC_Smash <= TRUE;	// Do not let the branch go to EX stage
 				o_DEC_Stall <= TRUE;		// Hold inst. until IF is ready
