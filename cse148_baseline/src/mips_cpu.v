@@ -1,11 +1,21 @@
-/* mips_cpu.v
-* Author: Pravin P. Prabhu
-* Last Revision: 1/5/11
-* Abstract:
-*	The top level module for the MIPS32 processor. This is a classic 5-stage
-* MIPS pipeline architecture which is intended to follow heavily from the model
-* presented in Hennessy and Patterson's Computer Organization and Design.
-*/
+/*=============================================================================
+ * File:    mips_cpu.v
+ * Author:  Pravin P. Prabhu
+ * Editor:  Kevin Huynh
+ *
+ * Version  Date        Comment
+ * ----------------------------------------------------------------------------
+ *   1.1    06/13/12    Implemented branch predictor.
+ *          05/24/12    Inserted branch predictor.
+ *   ?.?    01/05/11    Baseline.
+ *
+ * Description:
+ *   The top level module for the MIPS32 processor. This is a classic 5-stage
+ * MIPS pipeline architecture which is intended to follow heavily from the model
+ * presented in Hennessy and Patterson's Computer Organization and Design.
+ *   Additional optimizations have been appplied to the baseline which may 
+ * diverge from the model presented in Hennessy and Patterson.
+ =============================================================================*/
 module mips_cpu(// General	 
 				input CLOCK_50,	//These inputs are all pre-defined input/output pin names
 				//input Global_Reset_n,		// TEMP - Remove this after testing
@@ -57,6 +67,7 @@ localparam FALSE = 1'b0;
 localparam TRUE = 1'b1;
 localparam ADDRESS_WIDTH = 22;
 localparam DATA_WIDTH = 32;
+localparam BPRED_WIDTH = 9;
 //wire Global_Reset_n;			// Global reset
 wire Global_Reset_n = KEY[0];
 
@@ -108,6 +119,7 @@ wire DEC_Noop = (DEC_i_Instruction != 32'd0);
 wire DEC_o_Uses_ALU;
 wire [ALU_CTLCODE_WIDTH-1:0] DEC_o_ALUCTL;			// ALU control code
 wire DEC_o_Is_Branch;									// If it's a branch
+wire DEC_o_Is_Jump;                                     // If it's a jump
 wire [ADDRESS_WIDTH-1:0] DEC_o_Branch_Target;		// Where we will branch to
 wire DEC_o_Jump_Reg;									// If this is a special case where we jump TO a register value
 
@@ -495,6 +507,7 @@ decoder #(	.ADDRESS_WIDTH(ADDRESS_WIDTH),
 			.o_Uses_ALU(DEC_o_Uses_ALU),
 			.o_ALUCTL(DEC_o_ALUCTL),
 			.o_Is_Branch(DEC_o_Is_Branch),
+            .o_Is_Jump(DEC_o_Is_Jump),
 			.o_Jump_Reg(DEC_o_Jump_Reg),
 			
 			.o_Mem_Valid(DEC_o_Mem_Valid),
@@ -512,7 +525,6 @@ decoder #(	.ADDRESS_WIDTH(ADDRESS_WIDTH),
 			.o_Immediate(DEC_o_Immediate),
 			.o_Branch_Target(DEC_o_Branch_Target)
 		);
-
 		
 regfile #(	.DATA_WIDTH(DATA_WIDTH),
 			.REG_ADDR_WIDTH(REG_ADDR_WIDTH)
@@ -849,6 +861,7 @@ hazard_detection_unit 	#(  .DATA_WIDTH(DATA_WIDTH),
 							.i_DEC_Uses_RT(DEC_o_Uses_RT),								// DEC wants to use RT
 							.i_DEC_RT_Addr(DEC_o_Read_Register_2),							// RT request addr.
 							.i_DEC_Branch_Instruction(DEC_o_Is_Branch),
+                            .i_DEC_Jump_Instruction(DEC_o_Is_Jump),
 							
 							//===============================================
 							// Feedback from IF
@@ -859,7 +872,8 @@ hazard_detection_unit 	#(  .DATA_WIDTH(DATA_WIDTH),
 							.i_EX_Uses_Mem(EX_i_Mem_Valid),
 							.i_EX_Write_Addr(EX_i_Write_Addr),							// What EX will write to
 							.i_EX_Branch(EX_Take_Branch),							// If EX says we are branching
-							.i_EX_Branch_Target(EX_i_Branch_Target),
+							.i_EX_Branch_Target(DEC_o_Is_Jump ? ( DEC_o_Jump_Reg ? FORWARD_o_Forwarded_Data_1[ADDRESS_WIDTH-1:0] : DEC_o_Branch_Target ) :
+                                                                  EX_i_Branch_Target),
 							
 							// Feedback from MEM
 							.i_MEM_Uses_Mem(DMEM_i_Mem_Valid),								// If it's a memop
@@ -897,7 +911,21 @@ hazard_detection_unit 	#(  .DATA_WIDTH(DATA_WIDTH),
 							.o_WB_Smash(Hazard_Flush_WB)
 						);
 
-					
+branch_predictor    #(  .BPRED_WIDTH(BPRED_WIDTH))
+                    BPRED
+                    (
+                        // inputs
+                        .i_Reset_n(Internal_Reset_n),
+                        .i_ALU_Branch_Valid(ALU_o_Branch_Valid), 
+                        .i_DEC_Is_Branch(DEC_o_Is_Branch),                      
+                        //.i_Resolution_Index(EX_o_Resolution_Index), 
+                        .i_ALU_Branch_Outcome(ALU_o_Branch_Outcome),
+                        .i_PC(DEC_i_PC[BPRED_WIDTH-1:0])
+                        // output
+                        //.o_Resolution_Index(DEC_i_Resolution_Index)
+                        //.o_Prediction(BP_o_Prediction)
+                    );
+                    
 
 //===================================================================
 //	Initialization

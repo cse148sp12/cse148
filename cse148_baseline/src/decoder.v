@@ -1,9 +1,18 @@
-/* decoder.v
-* Author: Pravin P. Prabhu
-* Last Revision: 1/5/11
-* Abstract:
-*	Provides decoding of instructions to control signals.
-*/
+/*=============================================================================
+ * File:    decoder.v
+ * Author:  Pravin P. Prabhu
+ * Editor:  Kevin Huynh
+ *
+ * Version  Date        Comment
+ * ----------------------------------------------------------------------------
+ *   1.1    06/13/12    Created new control signal for jump instructions as 
+ *                      o_Is_Jump. o_Is_Branch is now true only for branch
+ *                      instructions.
+ *   ?.?    01/05/11    Baseline.
+ *
+ * Description:
+ *   Provides decoding of instructions to control signals. 
+ =============================================================================*/
 module decoder	#(
 					parameter ADDRESS_WIDTH = 32,
 					parameter DATA_WIDTH = 32,
@@ -22,6 +31,7 @@ module decoder	#(
 					output reg o_Uses_ALU,
 					output reg [ALUCTL_WIDTH-1:0] o_ALUCTL,
 					output reg o_Is_Branch,
+                    output reg o_Is_Jump,
 					output reg [ADDRESS_WIDTH-1:0] o_Branch_Target,
 					output reg o_Jump_Reg,
 					
@@ -91,6 +101,7 @@ module decoder	#(
 		o_Uses_ALU <= FALSE;
 		o_ALUCTL <= ALUCTL_NOP;
 		o_Is_Branch <= FALSE;
+        o_Is_Jump <= FALSE;
 		o_Branch_Target <= 0;
 		o_Jump_Reg <= FALSE;
 		o_Mem_Valid <= FALSE;
@@ -304,7 +315,7 @@ module decoder	#(
 				
 				6'h08: 	// JR
 				begin
-					o_Is_Branch <= TRUE;
+					o_Is_Jump <= TRUE;
 					o_Uses_ALU <= TRUE;
 					o_ALUCTL <= ALUCTL_JR;
 					o_Uses_RS <= TRUE;
@@ -316,7 +327,7 @@ module decoder	#(
 				
 				6'h09: 
 				begin  //jalr
-					o_Is_Branch <= TRUE;
+					o_Is_Jump <= TRUE;
 					o_Uses_ALU <= TRUE;
 					o_ALUCTL <= ALUCTL_JR;
 					o_Uses_RS <= TRUE;
@@ -551,7 +562,7 @@ module decoder	#(
 
 		6'h02:  // j
 		begin
-			o_Is_Branch <= TRUE;
+			o_Is_Jump <= TRUE;
 			o_Uses_ALU <= TRUE;
 			o_ALUCTL <= ALUCTL_J;
 			//o_Branch_Target <= {i_PC[31:26],i_Instruction[25:0]};
@@ -562,7 +573,7 @@ module decoder	#(
 
 		6'h03:  // jal
 		begin
-			o_Is_Branch <= TRUE;
+			o_Is_Jump <= TRUE;
 			o_Uses_ALU <= TRUE;
 			o_ALUCTL <= ALUCTL_JAL;
 			//o_Branch_Target <= {i_PC[31:26],i_Instruction[25:0]};

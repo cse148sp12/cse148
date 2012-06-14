@@ -1,10 +1,18 @@
-/* ALU.v
-* Author: Pravin P. Prabhu
-* Last Revision: 1/5/11
-* Abstract:
-*	Provides functions of the arithmetic logic unit, including calculations and
-* branch resolution.
-*/
+/*=============================================================================
+ * File:    alu.v
+ * Author:  Pravin P. Prabhu
+ * Editor:  Kevin Huynh
+ *
+ * Version  Date        Comment
+ * ----------------------------------------------------------------------------
+ *   1.1    06/13/12    Branch signals are no longer raised by jump 
+ *                      instructions.
+ *   ?.?    01/05/11    Baseline.
+ *
+ * Description:
+ *   Provides functions of the arithmetic logic unit, including calculations and
+ * branch resolution.
+ =============================================================================*/
 module alu	#(
 				parameter DATA_WIDTH = 32,
 				parameter CTLCODE_WIDTH = 8
@@ -239,31 +247,31 @@ begin
 			
 			//===========
 			// Jumps
-			ALUCTL_J:
-			begin
-				o_Branch_Valid <= 1;
-				o_Branch_Outcome <= 1;
-			end
-
-			ALUCTL_JR:
-			begin
-				o_Branch_Valid <= 1;
-				o_Branch_Outcome <= 1;
-			end			
-			
+//			ALUCTL_J:
+//			begin
+//				o_Branch_Valid <= 1;
+//				o_Branch_Outcome <= 1;
+//			end
+//
+//			ALUCTL_JR:
+//			begin
+//				o_Branch_Valid <= 1;
+//				o_Branch_Outcome <= 1;
+//			end			
+//			
 			ALUCTL_JAL:
-			begin
-				o_Branch_Valid <= 1;
-				o_Branch_Outcome <= 1;
+//			begin
+//				o_Branch_Valid <= 1;
+//				o_Branch_Outcome <= 1;
 				o_Result <= i_Operand2;
-			end	
-
+//			end	
+//
 			ALUCTL_JALR:
-			begin
-				o_Branch_Valid <= 1;
-				o_Branch_Outcome <= 1;
+//			begin
+//				o_Branch_Valid <= 1;
+//				o_Branch_Outcome <= 1;
 				o_Result <= i_Operand2;				
-			end						
+//			end						
 			
 			default: 
 			begin

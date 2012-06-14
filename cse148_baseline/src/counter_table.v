@@ -5,6 +5,7 @@
  *
  * Version  Date        Comment
  * ----------------------------------------------------------------------------
+ *   1.3    05/23/12    Separated the reading and updating process.
  *   1.2    05/08/12    Changed implementation from clocked to edge-triggered.
  *   1.1    05/01/12    Added & cleaned-up comments. Changed saturation counter
  *                      implementation to 4-state FSM.
@@ -17,13 +18,15 @@
  =============================================================================*/
 module counter_table #(parameter BPRED_WIDTH)
 (
-    input i_Enable,                     // enables state change
-	input i_Reset,
+    input i_Reset_n,
+    
+    input i_ALU_Branch_Valid,                   // enables counter state change
+    input [BPRED_WIDTH-1:0] i_Resolution_Index, // counter affected by branch resolution
+    input i_ALU_Branch_Outcome,                 // branch resolution
+    
+	input [BPRED_WIDTH-1:0] i_Index,            // index to select counter
 	
-	input [BPRED_WIDTH-1:0] i_Index,    // index to select counter
-	input i_ALU_Branch_Outcome,         // branch resolution
-	
-	output o_Prediction                 // branch prediction
+	output o_Prediction                         // branch prediction
 );
 
 /*============
@@ -51,22 +54,22 @@ assign o_Prediction = counter_table[i_Index][1];
 /*=======================
  * EDGE-TRIGGERED LOGIC
  =======================*/
-always@(posedge i_Enable or negedge i_Reset)
+always@(posedge i_ALU_Branch_Valid or negedge i_Reset_n)
 begin
     // active-lo reset
-    if (!i_Reset)
+    if (!i_Reset_n)
         // set all counters to weakly taken
         for (i = 0; i < TABLE_SIZE; i = i + 1)
             counter_table[i] <= WEAKLY_TAKEN;
     // update counter table
-    else if (i_Enable)
+    else if (i_ALU_Branch_Valid)
     begin
         // 2-bit predictor state machine
-        case (counter_table[i_Index])
-            STRONGLY_NOT_TAKEN: counter_table[i_Index] <= i_ALU_Branch_Outcome ? WEAKLY_NOT_TAKEN : STRONGLY_NOT_TAKEN;
-            WEAKLY_NOT_TAKEN:   counter_table[i_Index] <= i_ALU_Branch_Outcome ? WEAKLY_TAKEN     : STRONGLY_NOT_TAKEN;
-            WEAKLY_TAKEN:       counter_table[i_Index] <= i_ALU_Branch_Outcome ? STRONGLY_TAKEN   : WEAKLY_NOT_TAKEN;
-            STRONGLY_TAKEN:     counter_table[i_Index] <= i_ALU_Branch_Outcome ? STRONGLY_TAKEN   : WEAKLY_TAKEN;
+        case (counter_table[i_Resolution_Index])
+            STRONGLY_NOT_TAKEN: counter_table[i_Resolution_Index] <= i_ALU_Branch_Outcome ? WEAKLY_NOT_TAKEN : STRONGLY_NOT_TAKEN;
+            WEAKLY_NOT_TAKEN:   counter_table[i_Resolution_Index] <= i_ALU_Branch_Outcome ? WEAKLY_TAKEN     : STRONGLY_NOT_TAKEN;
+            WEAKLY_TAKEN:       counter_table[i_Resolution_Index] <= i_ALU_Branch_Outcome ? STRONGLY_TAKEN   : WEAKLY_NOT_TAKEN;
+            STRONGLY_TAKEN:     counter_table[i_Resolution_Index] <= i_ALU_Branch_Outcome ? STRONGLY_TAKEN   : WEAKLY_TAKEN;
             default:
                 ;   // do nothing
         endcase

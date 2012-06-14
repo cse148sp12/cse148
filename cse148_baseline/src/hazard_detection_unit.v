@@ -1,10 +1,20 @@
-/* hazard_detection_unit.v
-* Author: Pravin P. Prabhu
-* Last Revision: 1/5/11
-* Abstract:
-*	Contains all of the nightmarish logic for determining when the processor
-* should stall, and how it should stall. You are not expected to understand this.
-*/
+/*=============================================================================
+ * File:    hazard_detection_unit.v
+ * Author:  Pravin P. Prabhu
+ * Editor:  Kevin Huynh
+ *
+ * Version  Date        Comment
+ * ----------------------------------------------------------------------------
+ *   1.1    06/13/12    Created new input signal for jump instructions.
+ *                      Bypassed jump instruction one cycle to avoid smashing
+ *                      for jump instructions.
+ *   ?.?    01/05/11    Baseline.
+ *
+ * Description:
+ *   Contains all of the nightmarish logic for determining when the processor
+ * should stall, and how it should stall. You are not expected to understand 
+ * this. 
+ =============================================================================*/
 module hazard_detection_unit	#(	parameter DATA_WIDTH=32,
 									parameter ADDRESS_WIDTH=32,
 									parameter REG_ADDR_WIDTH=5
@@ -25,6 +35,7 @@ module hazard_detection_unit	#(	parameter DATA_WIDTH=32,
 								input i_DEC_Uses_RT,								// DEC wants to use RT
 								input [REG_ADDR_WIDTH-1:0] i_DEC_RT_Addr,		// RT request addr.
 								input i_DEC_Branch_Instruction,						// There is a branch inst. in DEC.
+                                input i_DEC_Jump_Instruction,                       // There is a jump inst. in DEC.
 								
 								//===============================================
 								// Feedback from IF
@@ -88,8 +99,8 @@ module hazard_detection_unit	#(	parameter DATA_WIDTH=32,
 	
 		// Branch handling
 	assign o_IF_Smash = (r_Branch_IF_Hazard_Smash || r_IF_Smash_Transient);
-	assign o_IF_Branch = i_EX_Branch || r_IF_Load;
-	assign o_IF_Branch_Target = i_EX_Branch ? i_EX_Branch_Target : r_IF_Load_Address;
+	assign o_IF_Branch = i_EX_Branch || i_DEC_Jump_Instruction || r_IF_Load;
+	assign o_IF_Branch_Target = (i_EX_Branch || i_DEC_Jump_Instruction) ? i_EX_Branch_Target : r_IF_Load_Address;
 	
 		// Hazard prevention: Smash IF instructions that are partway
 		// fetched as we recognize a branch. Stop the instruction that
@@ -127,7 +138,7 @@ module hazard_detection_unit	#(	parameter DATA_WIDTH=32,
 		else
 		begin
 			if( o_IF_Stall &&
-				i_EX_Branch )
+				(i_EX_Branch || i_DEC_Jump_Instruction) )
 			begin
 				// Branch during a stalling period. Hold on to the branch.
 				r_IF_Load <= TRUE;
